@@ -1,0 +1,19 @@
+# Ignore build artifacts, binaries, and downloaded stock images
+out/
+stock/
+tools/
+work_sys/
+step1_initramfs/
+final_initramfs/
+a5_rootfs/
+src/bionic_inc/uapi/
+*.img
+*.lz4
+*.ext4
+*.cpio
+*.zip
+*.tar.*
+*.so
+*.o
+*.ko
+!scripts/*.sh
