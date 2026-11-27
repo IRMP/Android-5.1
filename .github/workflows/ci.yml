@@ -63,10 +63,10 @@ jobs:
           $CC $CFLAGS $INC_BASE -I/tmp/aosp51/hardware_ril/include -c src/libpanther-ril.c -o /tmp/build/libpanther-ril.o
           $CC $CFLAGS $INC_BASE -c src/panther_bt_ctl.c -o /tmp/build/panther_bt_ctl.o
           $CC $CFLAGS $INC_BASE -c src/panther_aocd.c -o /tmp/build/panther_aocd.o
-          $CC $CFLAGS -c src/libpanther_chk.c -o /tmp/build/libpanther_chk.o
+          $CC $CFLAGS $INC_BASE -c src/libpanther_chk.c -o /tmp/build/libpanther_chk.o
 
           for f in src/mali_compat/*.c; do
-            $CC $CFLAGS -c "$f" -o "/tmp/build/$(basename "$f" .c).o"
+            $CC $CFLAGS $INC_BASE -c "$f" -o "/tmp/build/$(basename "$f" .c).o"
           done
 
           for f in bt_vendor_brcm.c hardware.c upio.c userial_vendor.c conf.c; do
