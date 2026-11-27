@@ -26,7 +26,7 @@ jobs:
           aarch64-linux-gnu-gcc -O2 -Wall -Wextra -static src/drm_test.c -I/usr/include -o /tmp/build/drm_test
           file /tmp/build/*
 
-      - name: Syntax-check shell scripts (if present)
+      - name: Syntax-check shell scripts
         run: |
           if [ -d scripts ]; then
             for f in scripts/*.sh; do
@@ -35,23 +35,44 @@ jobs:
             echo "All scripts passed bash -n"
           fi
 
-      - name: Compile-check Panther HAL shims (if present)
+      - name: Compile-check Panther HALs, Mali Compat Shims, and Daemons
         run: |
-          if [ -f src/gralloc.panther.c ] && [ -f src/hwcomposer.panther.c ]; then
-            mkdir -p /tmp/aosp51
-            git clone --depth=1 --branch lollipop-mr1-release https://android.googlesource.com/platform/hardware/libhardware /tmp/aosp51/libhardware
-            git clone --depth=1 --branch lollipop-mr1-release --filter=blob:none --sparse https://android.googlesource.com/platform/system/core /tmp/aosp51/system_core
-            (cd /tmp/aosp51/system_core && git sparse-checkout set include)
+          mkdir -p /tmp/aosp51
+          git clone --depth=1 --branch lollipop-mr1-release https://android.googlesource.com/platform/hardware/libhardware /tmp/aosp51/libhardware
+          git clone --depth=1 --branch lollipop-mr1-release https://android.googlesource.com/platform/hardware/ril /tmp/aosp51/hardware_ril
+          git clone --depth=1 --branch lollipop-mr1-release https://android.googlesource.com/platform/external/tinyalsa /tmp/aosp51/external_tinyalsa
+          git clone --depth=1 --branch lollipop-mr1-release https://android.googlesource.com/platform/hardware/broadcom/libbt /tmp/aosp51/broadcom_libbt
+          git clone --depth=1 --branch lollipop-mr1-release --filter=blob:none --sparse https://android.googlesource.com/platform/system/core /tmp/aosp51/system_core
+          (cd /tmp/aosp51/system_core && git sparse-checkout set include)
 
-            mkdir -p src/bionic_inc/uapi
-            ln -sfn /usr/include/drm src/bionic_inc/uapi/drm
-            ln -sfn /usr/aarch64-linux-gnu/include/linux src/bionic_inc/uapi/linux
-            ln -sfn /usr/aarch64-linux-gnu/include/asm src/bionic_inc/uapi/asm
-            ln -sfn /usr/aarch64-linux-gnu/include/asm-generic src/bionic_inc/uapi/asm-generic
+          mkdir -p src/bionic_inc/uapi
+          ln -sfn /usr/include/drm src/bionic_inc/uapi/drm
+          ln -sfn /usr/aarch64-linux-gnu/include/linux src/bionic_inc/uapi/linux
+          ln -sfn /usr/aarch64-linux-gnu/include/asm src/bionic_inc/uapi/asm
+          ln -sfn /usr/aarch64-linux-gnu/include/asm-generic src/bionic_inc/uapi/asm-generic
 
-            GCC_INC=$(aarch64-linux-gnu-gcc -print-file-name=include)
-            CFLAGS="-O2 -Wall -Wextra -fPIC -ffreestanding -nostdinc -isystem $GCC_INC -Isrc/bionic_inc -Isrc/bionic_inc/uapi -I/tmp/aosp51/libhardware/include -I/tmp/aosp51/system_core/include -Isrc"
-            aarch64-linux-gnu-gcc $CFLAGS -c src/gralloc.panther.c -o /tmp/build/gralloc.panther.o
-            aarch64-linux-gnu-gcc $CFLAGS -c src/hwcomposer.panther.c -o /tmp/build/hwcomposer.panther.o
-            ls -lh /tmp/build/*.o
-          fi
+          CC="aarch64-linux-gnu-gcc"
+          INC_BASE="-Isrc/bt_panther/inc -Isrc/bionic_inc -Isrc/bionic_inc/uapi -Isrc -I/tmp/aosp51/libhardware/include -I/tmp/aosp51/system_core/include"
+          CFLAGS="-O2 -Wall -Wextra -fPIC"
+
+          $CC $CFLAGS $INC_BASE -c src/gralloc.panther.c -o /tmp/build/gralloc.panther.o
+          $CC $CFLAGS $INC_BASE -c src/hwcomposer.panther.c -o /tmp/build/hwcomposer.panther.o
+          $CC $CFLAGS $INC_BASE -I/tmp/aosp51/external_tinyalsa/include -c src/audio.primary.panther.c -o /tmp/build/audio.primary.panther.o
+          $CC $CFLAGS $INC_BASE -c src/camera.panther.c -o /tmp/build/camera.panther.o
+          $CC $CFLAGS $INC_BASE -Isrc/bt_panther -c src/bluetooth.panther.c -o /tmp/build/bluetooth.panther.o
+          $CC $CFLAGS $INC_BASE -I/tmp/aosp51/hardware_ril/include -c src/libpanther-ril.c -o /tmp/build/libpanther-ril.o
+          $CC $CFLAGS $INC_BASE -c src/panther_bt_ctl.c -o /tmp/build/panther_bt_ctl.o
+          $CC $CFLAGS $INC_BASE -c src/panther_aocd.c -o /tmp/build/panther_aocd.o
+          $CC $CFLAGS -c src/libpanther_chk.c -o /tmp/build/libpanther_chk.o
+
+          for f in src/mali_compat/*.c; do
+            $CC $CFLAGS -c "$f" -o "/tmp/build/$(basename "$f" .c).o"
+          done
+
+          for f in bt_vendor_brcm.c hardware.c upio.c userial_vendor.c conf.c; do
+            $CC $CFLAGS -Wno-unused-parameter -Wno-unused-variable -Wno-sign-compare \
+              -include src/bt_panther/vnd_buildcfg.h \
+              -Isrc/bt_panther -Isrc/bt_panther/inc -Isrc/bionic_inc -Isrc -I/tmp/aosp51/broadcom_libbt/include \
+              -c "/tmp/aosp51/broadcom_libbt/src/$f" -o "/tmp/build/bt_${f%.c}.o"
+          done
+          ls -lh /tmp/build/*.o

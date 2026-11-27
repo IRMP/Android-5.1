@@ -48,7 +48,11 @@ ro.product.device=panther
 ro.sf.lcd_density=420
 ro.setupwizard.mode=DISABLED
 ro.kernel.qemu=0
-persist.sys.ui.hw=0
+persist.sys.ui.hw=1
+ro.opengles.version=196609
+rild.libpath=/vendor/lib64/libpanther-ril.so
+rild.libargs=-d /dev/umts_ipc0
+wifi.interface=wlan0
 persist.sys.usb.config=adb
 persist.sys.dalvik.vm.lib.2=libart.so
 dalvik.vm.dex2oat-Xms=64m
@@ -122,6 +126,19 @@ on fs
     mount tmpfs tmpfs /cache mode=0770,uid=1000,gid=2001,size=256M
 
 on post-fs-data
+    mkdir /data/misc 0771 system misc
+    mkdir /data/misc/wifi 0770 wifi wifi
+    mkdir /data/misc/wifi/sockets 0770 wifi wifi
+    mkdir /data/misc/dhcp 0770 dhcp dhcp
+    mkdir /data/vendor 0771 root system
+    mkdir /data/vendor/log 0775 root radio
+    mkdir /data/vendor/log/cbd 0775 root radio
+    mkdir /mnt/vendor 0755 root system
+    mkdir /mnt/vendor/modem_img 0755 root system
+    mkdir /mnt/vendor/efs 0771 root radio
+    copy /system/etc/wifi/wpa_supplicant.conf /data/misc/wifi/wpa_supplicant.conf
+    chmod 0660 /data/misc/wifi/wpa_supplicant.conf
+    chown wifi wifi /data/misc/wifi/wpa_supplicant.conf
     setprop vold.post_fs_data_done 1
 
 on boot
@@ -130,14 +147,34 @@ on boot
     setprop ro.sf.lcd_density 420
     setprop ro.setupwizard.mode DISABLED
     setprop debug.sf.nobootanimation 0
-    setprop persist.sys.ui.hw 0
+    setprop persist.sys.ui.hw 1
+    setprop ro.opengles.version 196609
     setprop hwui.render_dirty_regions false
     setprop ro.kernel.qemu 0
+    setprop wifi.interface wlan0
+    setprop rild.libpath /vendor/lib64/libpanther-ril.so
+    setprop rild.libargs "-d /dev/umts_ipc0"
     setprop sys.usb.controller 11210000.dwc3
     setprop sys.usb.state adb
     chmod 0666 /dev/dri/card0
+    chmod 0666 /dev/mali0
+    chmod 0666 /dev/dma_heap/system
     chmod 0666 /dev/ashmem
     chmod 0666 /dev/binder
+    chmod 0666 /dev/aoc
+    chmod 0666 /dev/acd-audio
+    chmod 0666 /dev/snd/controlC0
+    chmod 0666 /dev/snd/pcmC0D1p
+    chmod 0666 /dev/snd/pcmC0D5p
+    chmod 0666 /dev/snd/pcmC0D8c
+    chmod 0666 /dev/ttySAC18
+    chmod 0666 /proc/bluetooth/sleep/lpm
+    chmod 0666 /proc/bluetooth/sleep/btwrite
+    chmod 0666 /sys/class/rfkill/rfkill0/state
+    chmod 0666 /sys/class/rfkill/rfkill1/state
+    chmod 0666 /dev/umts_ipc0
+    chmod 0666 /dev/umts_ipc1
+    chmod 0666 /dev/umts_boot0
     chmod 0666 /dev/input/event0
     chmod 0666 /dev/input/event1
     chmod 0666 /dev/input/event2
@@ -146,6 +183,8 @@ on boot
     chmod 0666 /dev/input/event5
     start mini_adbd
     start watchdog_pet
+    start panther_aocd
+    start cpboot-daemon
     class_start main
     class_start late_start
 
@@ -158,6 +197,41 @@ service watchdog_pet /sbin/busybox watchdog -F -t 10 /dev/watchdog
     class core
     user root
     group root
+
+service panther_aocd /system/vendor/bin/panther_aocd
+    class core
+    user root
+    group root system audio
+
+service cpboot-daemon /system/vendor/bin/cbd -d -t s5100 -P by-name/modem -s 2
+    setenv LD_PRELOAD /system/lib64/libpanther_chk.so
+    class main
+    user root
+    group radio system cache inet misc audio log
+    oneshot
+
+service ril-daemon /system/bin/rild -l /vendor/lib64/libpanther-ril.so -- -d /dev/umts_ipc0
+    class main
+    socket rild stream 660 root radio
+    socket rild-debug stream 660 radio system
+    user root
+    group radio cache inet misc audio log
+
+service wpa_supplicant /system/bin/wpa_supplicant -iwlan0 -Dnl80211 -c/data/misc/wifi/wpa_supplicant.conf -O/data/misc/wifi/sockets -g@android:wpa_wlan0
+    class main
+    socket wpa_wlan0 dgram 660 wifi wifi
+    disabled
+    oneshot
+
+service dhcpcd_wlan0 /system/bin/dhcpcd -aABDKL
+    class main
+    disabled
+    oneshot
+
+service iprenew_wlan0 /system/bin/dhcpcd -n
+    class main
+    disabled
+    oneshot
 EOF
 
 (cd "$A5" && find . | sort | cpio -o -H newc --quiet) > "$FS/a5_rootfs.cpio"
@@ -214,6 +288,42 @@ if [ ! -x /newroot/system/bin/surfaceflinger ]; then
   echo "ERROR: /newroot/system/bin/surfaceflinger missing!"
   exit 1
 fi
+
+# Bind-mount /vendor so kernel request_firmware() finds /vendor/firmware/* during extra module insmod
+mkdir -p /vendor
+mount -o bind /newroot/system/vendor /vendor 2>/dev/null || true
+
+EXTRA_MODDIR="/vendor/lib/modules_extra"
+if [ -f "$EXTRA_MODDIR/modules_extra.order" ]; then
+  echo "Loading Pixel 7 extra hardware modules (Wi-Fi, AoC Audio, Mali-G710, Modem CPIF, Camera LWIS)..."
+  while read -r emod; do
+    [ -z "$emod" ] && continue
+    case "$emod" in
+      bcmdhd4389.ko)
+        insmod "$EXTRA_MODDIR/$emod" \
+          firmware_path=/vendor/firmware/fw_bcmdhd.bin \
+          nvram_path=/vendor/firmware/bcmdhd.cal \
+          clm_path=/vendor/firmware/bcmdhd_clm.blob 2>/dev/null || true
+        ;;
+      *)
+        insmod "$EXTRA_MODDIR/$emod" 2>/dev/null || true
+        ;;
+    esac
+  done < "$EXTRA_MODDIR/modules_extra.order"
+  mdev -s 2>/dev/null || true
+  chmod 0666 /dev/mali* /dev/dma_heap/* /dev/aoc* /dev/acd-* /dev/snd/* /dev/ttySAC* /dev/umts_* /dev/lwis-* /dev/video* 2>/dev/null || true
+fi
+
+# Mount stock modem firmware partition read-only for cbd if present
+mkdir -p /newroot/mnt/vendor/modem_img /newroot/mnt/vendor/efs
+SLOT=$(cat /proc/cmdline | tr ' ' '\n' | sed -n 's/^androidboot.slot_suffix=//p' | head -n 1)
+for mp in "/dev/block/platform/14700000.ufs/by-name/modem${SLOT}" "/dev/block/platform/14700000.ufs/by-name/modem_a" "/dev/block/platform/14700000.ufs/by-name/modem_b"; do
+  if [ -b "$mp" ]; then
+    mount -t erofs -o ro "$mp" /newroot/mnt/vendor/modem_img 2>/dev/null || \
+    mount -t ext4 -o ro "$mp" /newroot/mnt/vendor/modem_img 2>/dev/null || true
+    break
+  fi
+done
 
 echo "Android 5.1 staged in RAM. Triggering switch_root..."
 touch /tmp/.go_android5
@@ -315,6 +425,8 @@ if [ ! -c /dev/binder ] && [ -c /dev/binderfs/binder ]; then
   touch /dev/binder
   mount -o bind /dev/binderfs/binder /dev/binder
 fi
+
+umount /vendor 2>/dev/null || true
 
 mount --move /proc /newroot/proc
 mount --move /sys /newroot/sys
