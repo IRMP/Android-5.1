@@ -2,9 +2,9 @@ name: Build & Syntax Check
 
 on:
   push:
-    branches: ["main", "Pixel-7"]
+    branches: ["main", "Pixel-7", "pixel-6-pro"]
   pull_request:
-    branches: ["main", "Pixel-7"]
+    branches: ["main", "Pixel-7", "pixel-6-pro"]
 
 jobs:
   build:
@@ -35,9 +35,9 @@ jobs:
             echo "All scripts passed bash -n"
           fi
 
-      - name: Compile-check Panther HAL shims (if present)
+      - name: Compile-check Raven HAL shims (if present)
         run: |
-          if [ -f src/gralloc.panther.c ] && [ -f src/hwcomposer.panther.c ]; then
+          if [ -f src/gralloc.raven.c ] && [ -f src/hwcomposer.raven.c ]; then
             mkdir -p /tmp/aosp51
             git clone --depth=1 --branch lollipop-mr1-release https://android.googlesource.com/platform/hardware/libhardware /tmp/aosp51/libhardware
             git clone --depth=1 --branch lollipop-mr1-release --filter=blob:none --sparse https://android.googlesource.com/platform/system/core /tmp/aosp51/system_core
@@ -50,8 +50,10 @@ jobs:
             ln -sfn /usr/aarch64-linux-gnu/include/asm-generic src/bionic_inc/uapi/asm-generic
 
             GCC_INC=$(aarch64-linux-gnu-gcc -print-file-name=include)
-            CFLAGS="-O2 -Wall -Wextra -fPIC -ffreestanding -nostdinc -isystem $GCC_INC -Isrc/bionic_inc -Isrc/bionic_inc/uapi -I/tmp/aosp51/libhardware/include -I/tmp/aosp51/system_core/include -Isrc"
-            aarch64-linux-gnu-gcc $CFLAGS -c src/gralloc.panther.c -o /tmp/build/gralloc.panther.o
-            aarch64-linux-gnu-gcc $CFLAGS -c src/hwcomposer.panther.c -o /tmp/build/hwcomposer.panther.o
+            CFLAGS="-O3 -Wall -Wextra -fPIC -ffreestanding -nostdinc -isystem $GCC_INC -Isrc/bionic_inc -Isrc/bionic_inc/uapi -I/tmp/aosp51/libhardware/include -I/tmp/aosp51/system_core/include -Isrc"
+            aarch64-linux-gnu-gcc $CFLAGS -c src/gralloc.raven.c -o /tmp/build/gralloc.raven.o
+            aarch64-linux-gnu-gcc $CFLAGS -c src/hwcomposer.raven.c -o /tmp/build/hwcomposer.raven.o
+            aarch64-linux-gnu-gcc $CFLAGS -c src/lights.raven.c -o /tmp/build/lights.raven.o
+            aarch64-linux-gnu-gcc $CFLAGS -c src/power.raven.c -o /tmp/build/power.raven.o
             ls -lh /tmp/build/*.o
           fi

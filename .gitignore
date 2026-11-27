@@ -3,6 +3,8 @@ out/
 stock/
 tools/
 work_sys/
+work_verify/
+work_inspect/
 step1_initramfs/
 final_initramfs/
 a5_rootfs/

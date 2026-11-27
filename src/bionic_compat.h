@@ -18,6 +18,7 @@
 
 #define MS_SYNC     4
 #define CLOCK_MONOTONIC 1
+#define TIMER_ABSTIME   1
 
 #define EINVAL 22
 #define ENOMEM 12
@@ -41,6 +42,15 @@ struct pollfd {
     short revents;
 };
 
+struct dirent {
+    uint64_t d_ino;
+    int64_t  d_off;
+    unsigned short d_reclen;
+    unsigned char d_type;
+    char d_name[256];
+};
+typedef void DIR;
+
 typedef long pthread_t;
 typedef struct {
     int volatile value;
@@ -58,12 +68,11 @@ extern ssize_t write(int fd, const void *buf, size_t count);
 extern int ioctl(int fd, int request, ...);
 extern void *mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset);
 extern int munmap(void *addr, size_t length);
-extern int msync(void *addr, size_t length, int flags);
 extern int poll(struct pollfd *fds, unsigned long nfds, int timeout);
 extern pid_t getpid(void);
 extern int clock_gettime(int clk_id, struct timespec *tp);
+extern int clock_nanosleep(int clk_id, int flags, const struct timespec *req, struct timespec *rem);
 extern int nanosleep(const struct timespec *req, struct timespec *rem);
-extern int usleep(unsigned int usec);
 extern void *malloc(size_t size);
 extern void *calloc(size_t nmemb, size_t size);
 extern void free(void *ptr);
@@ -72,7 +81,10 @@ extern void *memcpy(void *dest, const void *src, size_t n);
 extern int strcmp(const char *s1, const char *s2);
 extern int strncmp(const char *s1, const char *s2, size_t n);
 extern int snprintf(char *str, size_t size, const char *format, ...);
-extern char *strerror(int errnum);
+extern long strtol(const char *nptr, char **endptr, int base);
+extern DIR *opendir(const char *name);
+extern struct dirent *readdir(DIR *dirp);
+extern int closedir(DIR *dirp);
 extern int pthread_create(pthread_t *thread, const void *attr, void *(*start_routine)(void *), void *arg);
 extern int pthread_join(pthread_t thread, void **retval);
 extern int pthread_mutex_lock(pthread_mutex_t *mutex);
@@ -86,6 +98,5 @@ extern int __android_log_print(int prio, const char *tag, const char *fmt, ...);
 
 /* libcutils.so */
 extern int ashmem_create_region(const char *name, size_t size);
-extern int property_get(const char *key, char *value, const char *default_value);
 
 #endif
