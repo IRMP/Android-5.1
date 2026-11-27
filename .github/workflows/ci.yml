@@ -1,0 +1,57 @@
+name: Build & Syntax Check
+
+on:
+  push:
+    branches: ["main", "Pixel-7"]
+  pull_request:
+    branches: ["main", "Pixel-7"]
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install cross-compiler and headers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc gcc-aarch64-linux-gnu linux-libc-dev
+
+      - name: Compile shared C tools (simg2img, mini_adbd, drm_test)
+        run: |
+          mkdir -p /tmp/build
+          gcc -O2 -Wall -Wextra src/simg2img.c -o /tmp/build/simg2img
+          aarch64-linux-gnu-gcc -O2 -Wall -Wextra -static -pthread src/mini_adbd.c -o /tmp/build/mini_adbd
+          aarch64-linux-gnu-gcc -O2 -Wall -Wextra -static src/drm_test.c -I/usr/include -o /tmp/build/drm_test
+          file /tmp/build/*
+
+      - name: Syntax-check shell scripts (if present)
+        run: |
+          if [ -d scripts ]; then
+            for f in scripts/*.sh; do
+              bash -n "$f"
+            done
+            echo "All scripts passed bash -n"
+          fi
+
+      - name: Compile-check Panther HAL shims (if present)
+        run: |
+          if [ -f src/gralloc.panther.c ] && [ -f src/hwcomposer.panther.c ]; then
+            mkdir -p /tmp/aosp51
+            git clone --depth=1 --branch lollipop-mr1-release https://android.googlesource.com/platform/hardware/libhardware /tmp/aosp51/libhardware
+            git clone --depth=1 --branch lollipop-mr1-release --filter=blob:none --sparse https://android.googlesource.com/platform/system/core /tmp/aosp51/system_core
+            (cd /tmp/aosp51/system_core && git sparse-checkout set include)
+
+            mkdir -p src/bionic_inc/uapi
+            ln -sfn /usr/include/drm src/bionic_inc/uapi/drm
+            ln -sfn /usr/aarch64-linux-gnu/include/linux src/bionic_inc/uapi/linux
+            ln -sfn /usr/aarch64-linux-gnu/include/asm src/bionic_inc/uapi/asm
+            ln -sfn /usr/aarch64-linux-gnu/include/asm-generic src/bionic_inc/uapi/asm-generic
+
+            GCC_INC=$(aarch64-linux-gnu-gcc -print-file-name=include)
+            CFLAGS="-O2 -Wall -Wextra -fPIC -ffreestanding -nostdinc -isystem $GCC_INC -Isrc/bionic_inc -Isrc/bionic_inc/uapi -I/tmp/aosp51/libhardware/include -I/tmp/aosp51/system_core/include -Isrc"
+            aarch64-linux-gnu-gcc $CFLAGS -c src/gralloc.panther.c -o /tmp/build/gralloc.panther.o
+            aarch64-linux-gnu-gcc $CFLAGS -c src/hwcomposer.panther.c -o /tmp/build/hwcomposer.panther.o
+            ls -lh /tmp/build/*.o
+          fi
